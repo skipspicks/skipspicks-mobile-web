@@ -1,0 +1,1848 @@
+/**
+ *  
+ *  SP - Skip's Picks javascript library
+ *
+ */
+
+/**
+ * startup
+ */
+(function () {
+  // global
+  $('div').live('pagebeforeshow', function() {
+    $('div[data-role="footer"]').html($('div#static-footer').html());
+  });
+
+  // home page
+  $('div#home').live('pagebeforeshow', function() {
+    // only put add link if logged in
+    if (SP.readCookie('user-name')) {
+      if ($('#homeLinks[data-inc!="add"]')) {
+        $('#homeLinks[data-inc!="add"]').append('<li id="homeListAdd"><a href="add.php?">Add Location</a></li>').listview('refresh');
+        $('#homeLinks').attr('data-inc', 'add');
+      }
+    } else {
+      $('#homeListAdd').remove();
+      $('#homeLinks').attr('data-inc', '');
+    }
+  });
+
+  // add page
+  $('div#add').live('pageshow', function() {
+    SP.setAddPage();
+  });
+  $('div#add').live('pagehide', function() {
+    $('div#add').remove();
+  });
+
+  // nearby
+  $('div#nearby').live('pageshow', function() {
+    SP.getNearby();
+  });
+  $('div#nearby').live('pagehide', function() {
+    // $('div#nearby').remove();
+  });
+
+  // detail
+  $('div#detail').live('pageshow', function() { // may be pageshow if not works...
+    var regexp = /id=(\d+)/; // i think this requires pageshow so hash is changed
+    var match = regexp.exec(window.location.hash);
+    var id = match[1];
+    var regexp = /type=(\w+)/;
+    var match = regexp.exec(window.location.hash);
+    var type = (match && match.length > 0) ? match[1] : null;
+    SP.getDetail(id, type);
+  });
+  $('div#detail').live('pagehide', function() {
+    // $('div#detail').page("destroy");
+    // $('div#detail').remove();
+  });
+
+  // favorites
+  $('#favs').live('pageshow', function() {
+    SP.getFavorites();
+  });
+
+  // search filter popup dialog
+  $('div#search-filter').live('pagehide', function() {
+    $('div#search-filter').remove();
+  });
+
+  // for setting location
+  $('div#loc-dialog').live('pageshow', function() {
+    $('#loc-form').submit(function(e) {
+      e.preventDefault();
+      var loc = {};
+      loc.address = $('input:[name="address"]', $(this)).val();
+      loc.city = $('input:[name="city"]', $(this)).val();
+      loc.state = $('input:[name="state"]', $(this)).val();
+      loc.zip = $('input:[name="postal_code"]', $(this)).val();
+      // dynamically load google api
+      SP.loadGMapApi.callback = function() {
+        SP.reverseGeoCode(loc, function(point) {
+          if (point) {
+            var geo = point.geometry.location;
+            SP.log(geo, 3);
+            var geopos = { 'coords': { 'latitude': geo.lat(), 'longitude': geo.lng() } };
+            SP.log(geopos, 3);
+            SP.createCookie('user-location', JSON.stringify(geopos), 30);
+            if (/#&/.test(window.location.hash)) {
+              window.location.href = "/";
+            } else {
+              var to = window.location.hash.substr(1)
+              $.mobile.changePage(to, 'slide', true, false);
+            }
+          }
+        })
+      };
+      SP.loadGMapApi.loadjsapi();
+      return false;
+    });
+  });
+
+  // testing area
+  $(document).ready(function() {
+    // SP.eraseCookie('user-location');
+    // SP.postTwitterStatus('testing!');
+    // console.log(SP.getGKey());
+    // SP.removeFavoriteFromDB("2004");
+  });
+
+}());
+
+if (!this.SP) {
+    this.SP = {};
+}
+
+(function () {
+
+    // class variables
+    var jsapiLoaded = false;
+    var logLevel = 2;
+
+    // lawnchair dbs
+    var locationDB; 
+    var favoriteDB;
+    var geopos = {};
+
+    // our SP object
+    SP = {
+
+        // page-functionality ------------------------------------------------------------
+
+        post: function(url, method, data, callback) {
+            $.ajax({
+                url: url,
+                type: method || "GET",
+                cache: false,
+                data: data,
+                success: function(results){
+                  SP.log('$ajax.success', 3);
+                  callback(results);
+                },
+                complete: function(request, status){
+                  if (status != 'success') {
+                    SP.log("ajax status:" + status, 3);
+                    SP.log(request, 3);
+                  }
+                }
+            });
+        },
+
+        /**
+         * callback takes a single param: obj
+         * f: {qt, id, details, sort, ...} // filters
+         */
+        locationRestRequest: function(f, callback) {
+          SP.log('locationRestRequest()', 3);
+          var url = "/rest/v1/locations/";
+
+          // parse f object into url
+          url += (f.id) ? f.id : "";
+          url += "?qt=" + ((f.qt) ? f.qt : '');
+          url += "&sort=" + ((f.sort) ? f.sort : '');
+          url += "&details=" + ((f.details) ? f.details : '');
+          url += "&rating=" + ((f.rating) ? f.rating : '');
+          url += "&price=" + ((f.price) ? f.price : '');
+          url += "&lat=" + ((f.latitude) ? f.latitude : '');
+          url += "&lng=" + ((f.longitude) ? f.longitude : '');
+
+          SP.log(url, 3);
+
+          SP.post(url, "GET", null, function(response) {
+            // add all returned locs to client db; BEER: simplify to { id, type }??
+            var locs = response.locations;
+            for (var i = 0; i < locs.length; i++) {
+              SP.addLocationToDB(locs[i]);
+            }
+            callback(locs);;
+          });
+        },
+
+        preProcessSubmitForm: function(frm) {
+          // $('div[id^="search.php"]').remove(); // named by jquery!
+        },
+
+        preProcessAddForm: function(frm) {
+          $('input:disabled').removeAttr('disabled');
+          $('input:hidden').removeAttr('disabled');
+
+          var url = frm.attr('action'); // already has id if exists
+          console.log(url);
+
+          if ($('input:[name="lat"]', frm).val() == "") {
+            SP.log('retrieving lat lng', 2);
+            var loc = {};
+            loc.address = $('input:[name="address"]', frm).val();
+            loc.city = $('input:[name="city"]', frm).val();
+            loc.state = $('input:[name="state"]', frm).val();
+            // dynamically load google api
+            SP.loadGMapApi.callback = function() {
+              SP.reverseGeoCode(loc, function(point) {
+                if (point) {
+                  var geo = point.geometry.location;
+                  SP.log(geo, 2);
+                  $('input:[name="lat"]', frm).val(geo.lat());
+                  $('input:[name="lng"]', frm).val(geo.lng());
+                  $.mobile.changePage({
+                    url: url,
+                    type: "POST", 
+                    data: frm.serialize()
+                  }, 'pop', false, false); 
+                } else {
+                  // if no results, get from navigator
+                  SP.log('reverting to device location', 2);
+                  SP.withGeoLocation(function(geoposition) {
+                    if (geoposition) {
+                      var geo = geoposition.coords;
+                      $('input:[name="lat"]', frm).val(geo.latitude);
+                      $('input:[name="lng"]', frm).val(geo.longitude);
+                      $.mobile.changePage({
+                        url: url,
+                        type: "POST", 
+                        data: frm.serialize()
+                      }, 'pop', false, false); 
+                    }
+                  });
+                }
+              });
+            };
+            SP.loadGMapApi.loadjsapi();
+          } else {
+            SP.log('adding location, no geo lookup', 2);
+            $.mobile.changePage({
+              url: url,
+              type: "POST", 
+              data: frm.serialize()
+            }, 'pop', false, false); 
+          }
+        },
+
+        /**
+         * add.php
+         * for filling in form fields w/ location information
+         */
+        setAddPage: function() {
+          SP.log('calling setAddPage', 3);
+          if (typeof id != "undefined" && /id=\d+/.test(window.location.hash)) {
+            SP.getLocationFromDB(id, function(obj) {
+              for (var field in obj) {
+                var name = "#add" + field.charAt(0).toUpperCase() + field.slice(1);
+                var inpt = $(name);
+                if (inpt && obj[field]) {
+                  inpt.val(obj[field]);
+                  inpt.attr('disabled', 'disabled');
+                }
+              }
+              $('div#add').page();
+            });
+          }
+          $('#addUser').val(SP.readCookie('user-name'));
+          $('#addUserId').val(SP.readCookie('user-id'));
+        },
+
+        /**
+         * get list of favorites
+         */
+        getFavorites: function() {
+          SP.log('getFavorites()', 3);
+          SP.getAllFavoritesFromDB(function(locs) {
+            SP.log(locs, 3);
+      
+            var locations = [];
+            for ( var i = 0; i < locs.length; i++ ) {
+              SP.getLocationFromDB(locs[i].key, function(loc) {
+                locations.push(loc);
+              });
+            }
+            $('ul#favorites').html(tmpl("list_tmpl", locations)); // .page();
+            $('ul#favorites').listview('refresh');
+            $('#favorites').page();
+          });
+        },
+
+        /**
+         * run a search, called from search page
+         * filter: object of search indicators
+         */
+        doSearch: function(filter) {
+          SP.log('doSearch()', 3);
+          SP.log(filter, 3);
+          SP.withGeoLocation(function(geoposition) {
+            filter.latitude = geoposition.coords.latitude;
+            filter.longitude = geoposition.coords.longitude;
+            SP.locationRestRequest(filter, function(locations) {
+              $('ul#searchresults').html(tmpl("list_tmpl", locations)).page();
+              $('ul#searchresults').listview('refresh');
+            });
+          });
+        },
+
+
+        // user functionality -------------------------------------------------------
+        getUser: function(user, password, encode, callback) {
+          SP.log('getUser: ' + user + '/' + password, 3);
+          var url = "/rest/v1/users/" + user + "?password=" + password;
+          if (geopos.coords)
+            url += "&lat=" + geopos.coords.latitude + "&lng=" + geopos.coords.longitude;
+          if (!encode) url += "&enc=false";
+          SP.log('url: ' + url, 3);
+          SP.post(url, 'GET', null, function(user) {
+            if (user && user.status == 'okay') {
+              SP.createCookie('user-name', user.user_name, 30);
+              SP.createCookie('user-password', user.password, 30);
+              SP.createCookie('user-id', user.user_id, 30);
+              callback(user);
+            } else {
+              alert('Please check your user name and password and try again.');
+            }
+          });
+        },
+        createUser: function(frm, callback) {
+          SP.log('createUser', 3);
+          var url = "/rest/v1/users/" + frm.user_name.value + "?password=" + frm.password.value + "&email=" + frm.email.value;
+          SP.log(url, 3);
+          SP.post(url, 'POST', null, function(user) {
+            if (user && user.status == 'okay') {
+              SP.log('creating: ', 3);
+              SP.log(user);
+              SP.createCookie('user-name', user.user_name, 30);
+              SP.createCookie('user-password', user.password, 30);
+              SP.createCookie('user-id', user.user_id, 30);
+              callback(user);
+            } else {
+              alert('There was a problem adding the user; that username might already exist.');
+            }
+          });
+        },
+        logOut: function(callback) {
+          SP.log('logOut()', 3);
+          SP.eraseCookie('user-name');
+          SP.eraseCookie('user-password');
+          SP.eraseCookie('user-id');
+          callback();
+        },
+        
+        
+        // json functionality -------------------------------------------------------
+        
+        /**
+         * map the yahoo results to sp db fields
+         */
+        convertYahooLocationToSPLocation: function(yahooLoc) {
+          var spLoc = {};
+          spLoc.yahoo_id = yahooLoc.id;
+          spLoc.name = yahooLoc.Title;
+          spLoc.address = yahooLoc.Address;
+          spLoc.city = yahooLoc.City;
+          spLoc.state = yahooLoc.State;
+          spLoc.postal_code = "";
+          spLoc.phone = yahooLoc.Phone;
+          spLoc.lat = yahooLoc.Latitude;
+          spLoc.lng = yahooLoc.Longitude;
+          spLoc.url = yahooLoc.BusinessClickUrl;
+          spLoc.avg_rev_rating = yahooLoc.Rating.AverageRating;
+          spLoc.distance = yahooLoc.Distance;
+          spLoc.reviews = [{body: yahooLoc.Rating.LastReviewIntro}];
+          spLoc.type = 'yahoo';
+          return spLoc;
+        },
+
+        // json persistence; using Lawnchair as a back
+        initLocationDB: function() {
+          if (locationDB)
+            return;
+          SP.log('init locationDB', 2);
+          locationDB = new Lawnchair({table: 'location', adaptor: 'dom'}, function(r) {
+            SP.log("db init'd", 2);
+          });
+        },
+        addLocationToDB: function(loc, callback) {
+          SP.initLocationDB();
+          loc.key = (loc.location_id) ? loc.location_id : loc.yahoo_id;
+          SP.log('adding loc ' + loc.key + ' to db', 3);
+          SP.log(loc, 3);
+          if (callback) {
+            locationDB.save(loc, callback);
+          } else {
+            locationDB.save(loc, function(r) {}); // Bug in lawnchair requires a callback or no key!!
+          }
+        },
+        getLocationFromDB: function(key, callback) {
+          SP.initLocationDB();
+          SP.log('retrieving loc ' + key + ' from db', 3);
+          locationDB.get(key, callback);
+        },
+        removeLocationFromDB: function(key) {
+          SP.initLocationDB();
+          SP.log('deleting loc ' + key + ' from db', 3);
+          locationDB.remove(key);
+        },
+        
+        initFavoriteDB: function() {
+          if (favoriteDB)
+            return;
+          SP.log('init favoriteDB', 3);
+          favoriteDB = new Lawnchair({table: 'favorites', adaptor: 'dom'}, function(r) {
+            SP.log("favorite db init'd", 3);
+          });
+        },
+        // assumes they already have keys; may need to re-architect
+        addFavoriteToDB: function(loc, callback) {
+          SP.initFavoriteDB();
+          // only add keys for normalization
+          var fav = {key: loc.key};
+          SP.log('adding fav ' + fav.key + ' to favorites db', 3);
+          SP.log(fav, 3);
+          if (callback) {
+            favoriteDB.save(fav, callback);
+          } else {
+            favoriteDB.save(fav, function(r) {}); // Bug in lawnchair requires a callback or no key!!
+          }
+        },
+        getAllFavoritesFromDB: function(callback) {
+          SP.initFavoriteDB();
+          SP.log('retrieving locs from favorite db', 3);
+          favoriteDB.all(callback);
+        },
+        getFavoriteFromDB: function(key, callback) {
+          SP.initFavoriteDB();
+          favoriteDB.get(key, callback);
+        },
+        removeFavoriteFromDB: function(key) {
+          SP.initFavoriteDB();
+          SP.log('deleting fav ' + key + ' from db', 2);
+          favoriteDB.remove(key);
+        },
+        
+        // geolocation functionality -------------------------------------------------------
+
+        geocode: function(address, callback) {
+          var geocoder = new google.maps.Geocoder();
+
+          var latlng = new google.maps.LatLng(address.latitude, address.longitude);
+          geocoder.geocode({'latLng': latlng}, function(results, status) {
+            if (status == google.maps.GeocoderStatus.OK) {
+              if (results[0]) {
+                SP.log(results, 3);
+              }
+            } else {
+              alert("Geocoder failed due to: " + status);
+            }
+          });
+        },
+
+        /**
+         * takes an object: {address, city, state}
+         */
+        reverseGeoCode: function(loc, callback) {
+          var geocoder = new google.maps.Geocoder();
+          var address = loc.address + ',' + loc.city + ',' + loc.state + ',' + loc.zip;
+          address = address.replace(/\s/g, "+");
+          console.log(address);
+          geocoder.geocode( { 'address': address }, function(results, status) {
+            if (status != google.maps.GeocoderStatus.OK) {
+              SP.log("Geocode was not successful for the following reason: " + status, 1);
+            }
+            callback(results[0]);
+          });
+        },
+
+        /**
+         * get current location.  asynchronous, pass a callback
+         * callback receives position object
+         *
+         * for efficiency, should check last update, and, based on flag, only call if been past time
+         * return boolean if has changed
+         *
+         */
+        withGeoLocation: function(callback, onSameCallback) {
+          try {
+            var userLoc = JSON.parse(SP.readCookie('user-location'));
+          } catch(err) {
+            console.log(err);
+          }
+          if (userLoc && typeof(userLoc) == 'object') {
+            SP.log('using cookie location', 3);
+            geopos = userLoc;
+          }
+          if (geopos.coords) {
+            SP.log('cached', 3);
+            if (onSameCallback) {
+              onSameCallback();
+            } else {
+              callback(geopos);
+            }
+            return;
+          }
+          if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(function(geoposition) {
+              SP.log('new GEO!', 3);
+              geopos = geoposition;
+              callback(geopos);
+            }, function(error) {
+              SP.log("geo locating threw the error [" + error.code + "] " + error.message, 1);
+              $.mobile.changePage('loc-dialog.html', 'pop', true, false);
+            }, {
+              maximumAge: 300000, // 5 minutes
+              timeout: 5000, // 5 seconds
+              enableHighAccuracy: true
+            });
+          } else if (typeof(Mojo) !="undefined" && typeof(Mojo.Service.Request) != "Mojo.Service.Request") {
+            // webOs
+            r = new Mojo.Service.Request('palm://com.palm.location', {
+              method:"getCurrentPosition",            
+              parameters: {accuracy: 1, maximumAge: 0, responseTime: 1}, 
+              onSuccess: function(p) {            
+                callback({
+                  timestamp: p.timestamp, 
+                    coords: {
+                    latitude: p.latitude,
+                    longitude: p.longitude,
+                    heading: p.heading
+                  }
+                });
+              },
+              onFailure: function(e) { SP.log("error getting mojo geolocation: " + e, 1); }
+            });
+          } else {
+            SP.log("browser does not support geo positioning", 2);
+          }
+        },
+
+        // this does not seem to be working; BEER: must fix for mobile speed....
+        loadGMapApi: {
+          callback: null,
+          loadjsapi: function() {
+            SP.log('loadjsapi()', 2);
+            // if (!jsapiLoaded) {
+              SP.log('loading now', 2);
+              var script = document.createElement("script");
+              script.src = "http://www.google.com/jsapi?key=" + SP.getGKey() + "&callback=SP.loadGMapApi.loadMapAPI";
+              // script.type = "text/javascript";
+              document.getElementsByTagName("head")[0].appendChild(script);
+              jsapiLoaded = true;
+            // }
+            // SP.log('already loaded', 2);
+            // this.callback();
+          },
+          loadMapAPI: function() {
+            console.log('loaded!');
+            google.load('maps', '3', {"other_params": "sensor=true", "callback" : this.callback});
+          }
+        },
+
+        getGKey: function() {
+            var gnetkey = 'ABQIAAAAuRZkfXnOvWgSRQYXsrsfjBQBSCnPmKbx2s6PCP8pRShTn_b5OBQXc1NFLmbXp9uuJFBJ5l8y3HzFMA';
+            var gcomkey = 'ABQIAAAAuRZkfXnOvWgSRQYXsrsfjBSKPUBGkfe_1QsR14S-5yUtlhJh1RSGSOd1TAIgZapEt_u6-U74FEgKJA';
+
+          if (/skipspicks.com/.test(window.location.hostname))
+            return gcomkey;
+          return gnetkey;
+        },
+
+        /**
+         * Twitter
+         * for now calling from php post code, not from javascript
+         * save for possible later use
+         * support is in rest.php also for js
+         */
+        postTwitterStatus: function(status) {
+          var url = '/php/rest.php?api=twitter&status=' + status;
+          SP.post(url, 'GET', null, null);
+        },
+
+
+        // helpers ------------------------------------------------------------------------
+
+        loadScript : function(sScriptSrc, oCallback) {
+            var oHead = document.getElementsByTagName("head")[0];
+            var oScript = document.createElement('script');
+            // oScript.type = 'text/javascript';
+            oScript.src = sScriptSrc;
+
+            // most browsers
+            oScript.onload = oCallback;
+
+            // IE 6 & 7
+            oScript.onreadystatechange = function() {
+                if (this.readyState == 'complete') {
+                    oCallback();
+                }
+            }
+            oHead.appendChild(oScript);
+        },
+
+        createCookie: function(name, value, days) {
+          if (days) {
+            var date = new Date();
+            date.setTime(date.getTime()+(days*24*60*60*1000));
+            var expires = "; expires="+date.toGMTString();
+          }
+          else var expires = "";
+          document.cookie = name+"="+value+expires+"; path=/";
+        },
+        readCookie: function(name) {
+          var nameEQ = name + "=";
+          var ca = document.cookie.split(';');
+          for(var i=0;i < ca.length;i++) {
+            var c = ca[i];
+            while (c.charAt(0)==' ') c = c.substring(1,c.length);
+            if (c.indexOf(nameEQ) == 0) return c.substring(nameEQ.length,c.length);
+          }
+          return null;
+        },
+        eraseCookie: function(name) {
+          SP.createCookie(name,"",-1);
+        },
+
+        /**
+         * level-based logging; 1: always, 2: warning, 3: debug
+         */
+        log: function(msg, level) {
+          if (level <= logLevel)
+            console.log(msg);
+        },
+
+        getUrlParams: function() {
+          var urlParams = {};
+          var e,
+            a = /\+/g,  // Regex for replacing addition symbol with a space
+            r = /([^&;=]+)=?([^&;]*)/g,
+            d = function (s) { return decodeURIComponent(s.replace(a, " ")); },
+            q = (window.location.search) ? window.location.search.substring(1) : window.location.hash.split('?')[1];
+          while (e = r.exec(q))
+            urlParams[d(e[1])] = d(e[2]);
+          return urlParams;
+        },
+
+        /**
+         * print the string... IF exists
+         */
+        p: function(str) {
+          return (str) ? str : "";
+        },
+
+
+        // rendering ------------------------------------------------------------------------
+        
+        // BEER: retrieving whole object now so i can refactor to only store ids elsewhere...
+        // BEER: still need to check for a skipspicks match for yahoo results
+        getDetail: function(id, type) {
+          SP.log('id: ' + id + '; type: ' + type, 2);
+          SP.log('getDetail(' + id + ')', 3);
+          // if it's a yahoo, see if there's an identical skipspick
+          if (type == 'yahoo') {
+            SP.getLocationFromDB(id, function(loc) {
+              SP.locationRestRequest({qt: escape(loc.name)}, function(spLoc) {
+                if (spLoc.length > 0) {
+                  SP.log('found a match, rendering!', 3);
+                  spLoc[0].display_id = id; // BEER: hackish?  passing pages initial id to match div ids
+                  SP.renderDetail(spLoc[0]);
+                } else {
+                  SP.log('no match, grab from yahoo and render', 3);
+                  SP.getYahooLocal(null, { "id": id }, 'SP.getSingleYahooForRender');
+                }
+              });
+            });
+          } else {
+            // grab it from spdb
+            SP.locationRestRequest({id: id}, function(locations) {
+              SP.log("checking for existing: " + id, 3);
+              if (locations.length > 0) {
+                locations[0].display_id = id;
+                SP.renderDetail(locations[0]);
+              } else {
+                // no results!!
+                SP.renderDetail({'key': id});
+              }
+            });
+          }
+        },
+
+        // BEER: move this down?
+        getSingleYahooForRender: function(yahoo) {
+          SP.log('getSingleYahooForRender()', 3);
+          SP.log(yahoo, 3);
+
+          var item = yahoo.ResultSet.Result;
+          var mapped = SP.convertYahooLocationToSPLocation(item);
+          mapped.display_id = mapped.yahoo_id;
+          SP.addLocationToDB(mapped); // BEER: overkill?  needed for key attr on object that is used on fav button..
+          SP.renderDetail(mapped);
+        },
+
+        renderDetail: function(obj) {
+          SP.log('rendering detail object: ' + obj.key, 3);
+          SP.log(obj, 3);
+
+          $('#details-' + obj.display_id).html(tmpl("detail_tmpl", obj)).page(); // .page("destroy");
+          $('h2#detailLocName-' + obj.display_id).text(obj.name); // .page();
+
+          // BEER: fix all the repetitive.  grab the element once and reuse!
+          SP.getFavoriteFromDB(obj.key, function(o) {
+            var favLink = $('#favorite-' + obj.key);
+            var favButton = $('#favbutton-' + obj.key);
+            if (o) {
+              favLink.attr('data-icon', 'delete'); // BEER: how to change icon??!!
+              favLink.text('Remove from Favorites').button();
+              favLink.bind('click', function() {
+                SP.removeFavoriteFromDB(obj.key);
+                favButton.remove();
+              });
+            } else {
+              favLink.button();
+              favLink.bind('click', function() {
+                SP.addFavoriteToDB(obj);
+                favButton.remove();
+              });
+            }
+          });
+          $('#details-' + obj.display_id).page().page("destroy");
+        },
+
+        renderNearby: function(yahoo) {
+          SP.log('original yahoo object:', 3);
+          SP.log(yahoo, 3);
+
+          var locations = [];
+          var items = yahoo.ResultSet.Result;
+          for ( var i = 0; i < items.length; i++ ) {
+            var item = items[i];
+            var mapped = SP.convertYahooLocationToSPLocation(item);
+            SP.addLocationToDB(mapped);
+            locations.push(mapped);
+          }
+
+          // not sure which is the magic here...
+          $('ul#nearbys').html(tmpl("list_tmpl", locations)); // .page();
+          $('ul#nearbys').listview('refresh');
+          // $('ul#nearbys').listview();
+          // $('#nearby.html').page();
+
+
+          $.mobile.pageLoading(true);
+        },
+
+        /**
+         * BEER: split render from function so can call getnearby from search w/ a query string
+         */
+        getNearby: function() {
+          // { "qt": "clyde's prime rib" }
+          SP.log('renderNearby()', 3);
+          $.mobile.pageLoading(); // show loading dialog
+          SP.withGeoLocation(function(geoposition) {
+            SP.log(geoposition, 3);
+            SP.getYahooLocal(geoposition, null, 'SP.renderNearby');
+          });
+        },
+
+        /**
+         * takes either a geopos OR an id
+         * callbackName is a string name of func to call
+         * query: {id, qt}
+         */
+        getYahooLocal: function (geoposition, query, callbackName) {
+          var url = "http://local.yahooapis.com/LocalSearchService/V3/localSearch";
+          var yahooSkipsPicksId = "hK.bnA7V34EQYsQLfVbdFoAgAkItOiaQ.pSUBVClWeLuB..rD8P.85pliVIZeg--";
+          url += "?appid=" + yahooSkipsPicksId + "&results=15&radius=3.5&sort=distance&output=json";
+          
+          if (geoposition) {
+            var geo = geoposition.coords;
+            url += "&latitude=" + geo.latitude + "&longitude=" + geo.longitude;
+          }
+
+          url += "&query=restaurant";
+          if (query) {
+            if (query.qt)
+              url += "+" + escape(query.qt);
+            if (query.id)
+              url += "&listing_id=" + query.id;
+          }
+
+          url += "&callback=" + callbackName;
+
+          SP.log(url, 3);
+          SP.loadScript(url, null); // this will cross-domain load the script and call test
+        }
+
+    };
+
+}());
+/**
+ * Lawnchair
+ * =========
+ * A lightweight JSON document store.
+ *
+ */
+var Lawnchair = function(opts, cb) {
+    if (typeof cb == 'undefined') throw "Please provide a callback as second parameter to Lawnchair constructor; this shit's async, yo.";
+    if (!JSON || !JSON.stringify) throw "Native JSON functions unavailable - please include http://www.json.org/json2.js or run on a decent browser :P";
+	this.init(opts);
+	cb.call(this);
+}
+
+Lawnchair.prototype = {
+	
+	init:function(opts) {
+		var adaptors = {
+			'webkit':window.WebkitSQLiteAdaptor,
+			'gears':window.GearsSQLiteAdaptor,
+			'dom':window.DOMStorageAdaptor,
+			'cookie':window.CookieAdaptor,
+			'air':window.AIRSQLiteAdaptor,
+			'userdata':window.UserDataAdaptor,
+			'air-async':window.AIRSQLiteAsyncAdaptor,
+			'blackberry':window.BlackBerryPersistentStorageAdaptor,
+      'couch':window.CouchAdaptor,
+      'server':window.ServerAdaptor
+		};
+		this.adaptor = opts.adaptor ? new adaptors[opts.adaptor](opts) : new DOMStorageAdaptor(opts);
+	},
+	
+	// Save an object to the store. If a key is present then update. Otherwise create a new record.
+	save:function(obj, callback) {this.adaptor.save(obj, callback)},
+	
+	// Invokes a callback on an object with the matching key.
+	get:function(key, callback) {this.adaptor.get(key, callback)},
+
+	// Returns whether a key exists to a callback.
+	exists:function(callback) {this.adaptor.exists(callback)},
+	
+	// Returns all rows to a callback.
+	all:function(callback) {this.adaptor.all(callback)},
+	
+	// Removes a json object from the store.
+	remove:function(keyOrObj, callback) {this.adaptor.remove(keyOrObj, callback)},
+	
+	// Removes all documents from a store and returns self.
+	nuke:function(callback) {this.adaptor.nuke(callback);return this},
+	
+	// Returns a page of results based on offset provided by user and perPage option
+	paged:function(page, callback) {this.adaptor.paged(page, callback)},
+	
+	/**
+	 * Iterator that accepts two paramters (methods or eval strings):
+	 *
+	 * - conditional test for a record
+	 * - callback to invoke on matches
+	 *
+	 */
+	find:function(condition, callback) {
+		var is = (typeof condition == 'string') ? function(r){return eval(condition)} : condition
+		  , cb = this.adaptor.terseToVerboseCallback(callback);
+	
+		this.each(function(record, index) {
+			if (is(record)) cb(record, index); // thats hot
+		});
+	},
+
+
+	/**
+	 * Classic iterator.
+	 * - Passes the record and the index as the second parameter to the callback.
+	 * - Accepts a string for eval or a method to be invoked for each document in the collection.
+	 */
+	each:function(callback) {
+		var cb = this.adaptor.terseToVerboseCallback(callback);
+		this.all(function(results) {
+			var l = results.length;
+			for (var i = 0; i < l; i++) {
+				cb(results[i], i);
+			}
+		});
+	}
+// --
+};
+/**
+ * LawnchairAdaptorHelpers
+ * =======================
+ * Useful helpers for creating Lawnchair stores. Used as a mixin.
+ *
+ */
+var LawnchairAdaptorHelpers = {
+	// merging default properties with user defined args
+	merge: function(defaultOption, userOption) {
+		return (userOption == undefined || userOption == null) ? defaultOption: userOption;
+	},
+
+	// awesome shorthand callbacks as strings. this is shameless theft from dojo.
+	terseToVerboseCallback: function(callback) {
+		return (typeof arguments[0] == 'string') ?
+		function(r, i) {
+			eval(callback);
+		}: callback;
+	},
+
+	// Returns current datetime for timestamps.
+	now: function() {
+		return new Date().getTime();
+	},
+
+	// Returns a unique identifier
+	uuid: function(len, radix) {
+		// based on Robert Kieffer's randomUUID.js at http://www.broofa.com
+		var chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'.split('');
+		var uuid = [];
+		radix = radix || chars.length;
+
+		if (len) {
+			for (var i = 0; i < len; i++) uuid[i] = chars[0 | Math.random() * radix];
+		} else {
+			// rfc4122, version 4 form
+			var r;
+
+			// rfc4122 requires these characters
+			uuid[8] = uuid[13] = uuid[18] = uuid[23] = '-';
+			uuid[14] = '4';
+
+			// Fill in random data.  At i==19 set the high bits of clock sequence as
+			// per rfc4122, sec. 4.1.5
+			for (var i = 0; i < 36; i++) {
+				if (!uuid[i]) {
+					r = 0 | Math.random() * 16;
+					uuid[i] = chars[(i == 19) ? (r & 0x3) | 0x8: r];
+				}
+			}
+		}
+		return uuid.join('');
+	},
+
+	// Serialize a JSON object as a string.
+	serialize: function(obj) {
+		var r = '';
+		r = JSON.stringify(obj);
+		return r;
+	},
+
+	// Deserialize JSON.
+	deserialize: function(json) {
+		return eval('(' + json + ')');
+	}
+};
+/**
+ * WebkitSQLiteAdaptor
+ * ===================
+ * Sqlite implementation for Lawnchair.
+ *
+ */
+var WebkitSQLiteAdaptor = function(options) {
+	for (var i in LawnchairAdaptorHelpers) {
+		this[i] = LawnchairAdaptorHelpers[i];
+	}
+	this.init(options);
+};
+
+
+WebkitSQLiteAdaptor.prototype = {
+	init:function(options) {
+		var that = this;
+		var merge = that.merge;
+		var opts = (typeof arguments[0] == 'string') ? {table:options} : options;
+
+		// default properties
+		this.name		= merge('Lawnchair', opts.name	  	);
+		this.version	= merge('1.0',       opts.version 	);
+		this.table 		= merge('field',     opts.table	  	);
+		this.display	= merge('shed',      opts.display 	);
+		this.max		= merge(65536,       opts.max	  	);
+		this.db			= merge(null,        opts.db		);
+		this.perPage    = merge(10,          opts.perPage   );
+
+		// default sqlite callbacks
+		this.onError = function(){};
+		this.onData  = function(){};
+
+		if("onError" in opts) {
+			this.onError = opts.onError;
+		}
+		
+		if(typeof opts.callback !== 'function') opts.callback = function(){};
+		
+		// error out on shit browsers
+		if (!window.openDatabase)
+			throw('Lawnchair, "This browser does not support sqlite storage."');
+		// instantiate the store
+		if(!WebkitSQLiteAdaptor.globaldb) WebkitSQLiteAdaptor.globaldb = openDatabase(this.name, this.version, this.display, this.max);
+
+		this.db = WebkitSQLiteAdaptor.globaldb;
+
+		// create a default database and table if one does not exist
+		that.db.transaction(function(tx) {
+			tx.executeSql("CREATE TABLE IF NOT EXISTS "+ that.table + " (id NVARCHAR(32) UNIQUE PRIMARY KEY, value TEXT, timestamp REAL)", [], opts.callback, that.onError);
+		});
+	},
+	save:function(obj, callback) {
+		var that = this;
+	
+		var update = function(id, obj, callback) {
+			that.db.transaction(function(t) {
+				t.executeSql(
+					"UPDATE " + that.table + " SET value=?, timestamp=? WHERE id=?",
+					[that.serialize(obj), that.now(), id],
+					function() {
+						if (callback != undefined) {
+							obj.key = id;
+							that.terseToVerboseCallback(callback)(obj);
+						}
+					},
+					that.onError
+				);
+			});
+		};
+		var insert = function(obj, callback) {
+			that.db.transaction(function(t) {
+				var id = (obj.key == undefined) ? that.uuid() : obj.key;
+				delete(obj.key);
+				t.executeSql(
+					"INSERT INTO " + that.table + " (id, value,timestamp) VALUES (?,?,?)",
+					[id, that.serialize(obj), that.now()],
+					function() {
+						if (callback != undefined) {
+							obj.key = id;
+							that.terseToVerboseCallback(callback)(obj);
+						}
+					},
+					that.onError
+				);
+			});
+		};
+		if (obj.key == undefined) {
+			insert(obj, callback);
+		} else {
+			this.get(obj.key, function(r) {
+				var isUpdate = (r != null);
+	
+				if (isUpdate) {
+					var id = obj.key;
+					delete(obj.key);
+					update(id, obj, callback);
+				} else {
+					insert(obj, callback);
+				}
+			});
+		}
+	},
+	get:function(key, callback) {
+		var that = this;
+		this.db.transaction(function(t) {
+			t.executeSql(
+				"SELECT value FROM " + that.table + " WHERE id = ?",
+				[key],
+				function(tx, results) {
+					if (results.rows.length == 0) {
+						that.terseToVerboseCallback(callback)(null);
+					} else {
+						var o = that.deserialize(results.rows.item(0).value);
+						o.key = key;
+						that.terseToVerboseCallback(callback)(o);
+					}
+				},
+				this.onError
+			);
+		});
+	},
+	all:function(callback) {
+		var cb = this.terseToVerboseCallback(callback);
+		var that = this;
+		this.db.transaction(function(t) {
+			t.executeSql("SELECT * FROM " + that.table, [], function(tx, results) {
+				if (results.rows.length == 0 ) {
+					cb([]);
+				} else {
+					var r = [];
+					for (var i = 0, l = results.rows.length; i < l; i++) {
+						var raw = results.rows.item(i).value;
+						var obj = that.deserialize(raw);
+						obj.key = results.rows.item(i).id;
+						r.push(obj);
+					}
+					cb(r);
+				}
+			},
+			that.onError);
+		});
+	},
+	paged:function(page, callback) {
+		var cb = this.terseToVerboseCallback(callback);
+		var that = this;
+		this.db.transaction(function(t) {
+		    var offset = that.perPage * (page - 1); // a little offset math magic so users don't have to be 0-based
+		    var sql = "SELECT * FROM " + that.table + " ORDER BY timestamp ASC LIMIT ? OFFSET ?";
+			t.executeSql(sql, [that.perPage, offset], function(tx, results) {
+				if (results.rows.length == 0 ) {
+					cb([]);
+				} else {
+					var r = [];
+					for (var i = 0, l = results.rows.length; i < l; i++) {
+						var raw = results.rows.item(i).value;
+						var obj = that.deserialize(raw);
+						obj.key = results.rows.item(i).id;
+						r.push(obj);
+					}
+					cb(r);
+				}
+			},
+			that.onError);
+		});
+	},
+	remove:function(keyOrObj, callback) {
+		var that = this;
+        if (callback)
+            callback = that.terseToVerboseCallback(callback);
+		this.db.transaction(function(t) {
+			t.executeSql(
+				"DELETE FROM " + that.table + " WHERE id = ?",
+				[(typeof keyOrObj == 'string') ? keyOrObj : keyOrObj.key],
+				callback || that.onData,
+				that.onError
+			);
+		});
+	},
+	nuke:function(callback) {
+		var that = this;
+        if (callback)
+            callback = that.terseToVerboseCallback(callback);
+		this.db.transaction(function(tx) {
+			tx.executeSql(
+				"DELETE FROM " + that.table,
+				[],
+				callback || that.onData,
+				that.onError
+			);
+		});
+	}
+};
+/**
+ * DOMStorageAdaptor
+ * ===================
+ * DOM Storage implementation for Lawnchair.
+ *
+ * - originally authored by Joseph Pecoraro
+ * - window.name code courtesy Remy Sharp: http://24ways.org/2009/breaking-out-the-edges-of-the-browser
+ *
+ */
+var DOMStorageAdaptor = function(options) {
+	for (var i in LawnchairAdaptorHelpers) {
+		this[i] = LawnchairAdaptorHelpers[i];
+	}
+	this.init(options);
+};
+
+
+DOMStorageAdaptor.prototype = {
+	init:function(options) {
+		var self = this;
+		this.storage = this.merge(window.localStorage, options.storage);
+		this.table = this.merge('field', options.table);
+		
+		if (!window.Storage) {
+			this.storage = (function () {
+				// window.top.name ensures top level, and supports around 2Mb
+				var data = window.top.name ? self.deserialize(window.top.name) : {};
+				return {
+					setItem: function (key, value) {
+						data[key] = value+""; // force to string
+						window.top.name = self.serialize(data);
+					},
+					removeItem: function (key) {
+						delete data[key];
+						window.top.name = self.serialize(data);
+					},
+					getItem: function (key) {
+						return data[key] || null;
+					},
+					clear: function () {
+						data = {};
+						window.top.name = '';
+					}
+				};
+			})();
+		};
+	},
+
+	save:function(obj, callback) {
+		var id = this.table + '::' + (obj.key || this.uuid());
+		delete obj.key;
+		this.storage.setItem(id, this.serialize(obj));
+		if (callback) {
+		    obj.key = id.split('::')[1];
+		    this.terseToVerboseCallback(callback)(obj);
+		}
+	},
+
+    get:function(key, callback) {
+        var obj = this.deserialize(this.storage.getItem(this.table + '::' + key))
+          , cb = this.terseToVerboseCallback(callback);
+        
+        if (obj) {
+            obj.key = key;
+            if (callback) cb(obj);
+        } else {
+			if (callback) cb(null);
+		}
+    },
+
+	all:function(callback) {
+		var cb = this.terseToVerboseCallback(callback);
+		var results = [];
+		for (var i = 0, l = this.storage.length; i < l; ++i) {
+			var id = this.storage.key(i);
+			var tbl = id.split('::')[0]
+			var key = id.split('::').slice(1).join("::");
+			if (tbl == this.table) {
+				var obj = this.deserialize(this.storage.getItem(id));
+				obj.key = key;
+				results.push(obj);
+			}
+		}
+		if (cb)
+			cb(results);
+	},
+
+	remove:function(keyOrObj, callback) {
+		var key = this.table + '::' + (typeof keyOrObj === 'string' ? keyOrObj : keyOrObj.key);
+		this.storage.removeItem(key);
+		if(callback)
+		  this.terseToVerboseCallback(callback)();
+	},
+
+	nuke:function(callback) {
+		var self = this;
+		this.all(function(r) {
+			for (var i = 0, l = r.length; i < l; i++) {
+				self.remove(r[i]);
+			}
+			if(callback)
+			  self.terseToVerboseCallback(callback)();
+		});
+	}
+};
+/**
+ * CookieAdaptor
+ * ===================
+ * Cookie implementation for Lawnchair for older browsers.
+ *
+ * Based on ppk's http://www.quirksmode.org/js/cookies.html
+ *
+ */
+var CookieAdaptor = function(options) {
+	for (var i in LawnchairAdaptorHelpers) {
+		this[i] = LawnchairAdaptorHelpers[i];
+	}
+	this.init(options);
+};
+
+CookieAdaptor.prototype = {
+	init:function(){
+		this.createCookie = function(name, value, days) {
+			if (days) {
+				var date = new Date();
+				date.setTime(date.getTime()+(days*24*60*60*1000));
+				var expires = "; expires="+date.toGMTString();
+			}
+			else var expires = "";
+			document.cookie = name+"="+value+expires+"; path=/";
+		};
+	},
+	get:function(key, callback){
+		var readCookie = function(name) {
+			var nameEQ = name + "=";
+			var ca = document.cookie.split(';');
+			var len = ca.length;
+			for (var i=0; i < len; i++) {
+				var c = ca[i];
+				while (c.charAt(0)==' ') c = c.substring(1,c.length);
+				if (c.indexOf(nameEQ) == 0) return c.substring(nameEQ.length,c.length);
+			}
+			return null;
+		};
+		var obj = this.deserialize(readCookie(key)) || null;
+		if (obj) {
+			obj.key = key;
+		}
+		if (callback)
+            this.terseToVerboseCallback(callback)(obj);
+	},
+	save:function(obj, callback){
+		var id = obj.key || this.uuid();
+		delete obj.key;
+		this.createCookie(id, this.serialize(obj), 365);
+        obj.key = id;
+		if (callback)
+			this.terseToVerboseCallback(callback)(obj);
+	},
+	all:function(callback){
+		var cb = this.terseToVerboseCallback(callback);
+		var ca = document.cookie.split(';');
+		var yar = [];
+		var c,k,v,o;
+		// yo ho yo ho a pirates life for me
+		for (var i = 0, l = ca.length; i < l; i++) {
+			c = ca[i].split('=');
+			k = c[0];
+			v = c[1];
+			o = this.deserialize(v);
+			if (o) {
+				o.key = k;
+				yar.push(o);
+			}
+		}
+		if (cb)
+			cb(yar);
+	},
+	remove:function(keyOrObj, callback) {
+		var key = (typeof keyOrObj == 'string') ? keyOrObj : keyOrObj.key;
+		this.createCookie(key, '', -1);
+		if (callback)
+		    this.terseToVerboseCallback(callback)();
+	},
+	nuke:function(callback) {
+		var that = this;
+		this.all(function(r){
+			for (var i = 0, l = r.length; i < l; i++) {
+				if (r[i].key)
+					that.remove(r[i].key);
+			}
+            if (callback) {
+                callback = that.terseToVerboseCallback(callback);
+                callback(r);
+            }
+		});
+	}
+};
+// Simple JavaScript Templating
+// John Resig - http://ejohn.org/ - MIT Licensed
+(function() {
+    var cache = {};
+
+    this.tmpl = function tmpl(str, data) {
+        // Figure out if we're getting a template, or if we need to
+        // load the template - and be sure to cache the result.
+        var fn = !/\W/.test(str) ?
+      cache[str] = cache[str] ||
+        tmpl(document.getElementById(str).innerHTML) :
+
+        // Generate a reusable function that will serve as a template
+        // generator (and which will be cached).
+      new Function("obj",
+        "var p=[],print=function(){p.push.apply(p,arguments);};" +
+
+        // Introduce the data as local variables using with(){}
+        "with(obj){p.push('" +
+
+        // Convert the template into pure JavaScript
+        str.replace(/[\r\t\n]/g, " ")
+           .replace(/'(?=[^%]*%>)/g,"\t")
+           .split("'").join("\\'")
+           .split("\t").join("'")
+           .replace(/<%=(.+?)%>/g, "',$1,'")
+           .split("<%").join("');")
+           .split("%>").join("p.push('")
+           + "');}return p.join('');");
+
+        // Provide some basic currying to the user
+        return data ? fn(data) : fn;
+    };
+})();
+
+/*
+    http://www.JSON.org/json2.js
+    2011-01-18
+
+    Public Domain.
+
+    NO WARRANTY EXPRESSED OR IMPLIED. USE AT YOUR OWN RISK.
+
+    See http://www.JSON.org/js.html
+
+
+    This code should be minified before deployment.
+    See http://javascript.crockford.com/jsmin.html
+
+    USE YOUR OWN COPY. IT IS EXTREMELY UNWISE TO LOAD CODE FROM SERVERS YOU DO
+    NOT CONTROL.
+
+
+    This file creates a global JSON object containing two methods: stringify
+    and parse.
+
+        JSON.stringify(value, replacer, space)
+            value       any JavaScript value, usually an object or array.
+
+            replacer    an optional parameter that determines how object
+                        values are stringified for objects. It can be a
+                        function or an array of strings.
+
+            space       an optional parameter that specifies the indentation
+                        of nested structures. If it is omitted, the text will
+                        be packed without extra whitespace. If it is a number,
+                        it will specify the number of spaces to indent at each
+                        level. If it is a string (such as '\t' or '&nbsp;'),
+                        it contains the characters used to indent at each level.
+
+            This method produces a JSON text from a JavaScript value.
+
+            When an object value is found, if the object contains a toJSON
+            method, its toJSON method will be called and the result will be
+            stringified. A toJSON method does not serialize: it returns the
+            value represented by the name/value pair that should be serialized,
+            or undefined if nothing should be serialized. The toJSON method
+            will be passed the key associated with the value, and this will be
+            bound to the value
+
+            For example, this would serialize Dates as ISO strings.
+
+                Date.prototype.toJSON = function (key) {
+                    function f(n) {
+                        // Format integers to have at least two digits.
+                        return n < 10 ? '0' + n : n;
+                    }
+
+                    return this.getUTCFullYear()   + '-' +
+                         f(this.getUTCMonth() + 1) + '-' +
+                         f(this.getUTCDate())      + 'T' +
+                         f(this.getUTCHours())     + ':' +
+                         f(this.getUTCMinutes())   + ':' +
+                         f(this.getUTCSeconds())   + 'Z';
+                };
+
+            You can provide an optional replacer method. It will be passed the
+            key and value of each member, with this bound to the containing
+            object. The value that is returned from your method will be
+            serialized. If your method returns undefined, then the member will
+            be excluded from the serialization.
+
+            If the replacer parameter is an array of strings, then it will be
+            used to select the members to be serialized. It filters the results
+            such that only members with keys listed in the replacer array are
+            stringified.
+
+            Values that do not have JSON representations, such as undefined or
+            functions, will not be serialized. Such values in objects will be
+            dropped; in arrays they will be replaced with null. You can use
+            a replacer function to replace those with JSON values.
+            JSON.stringify(undefined) returns undefined.
+
+            The optional space parameter produces a stringification of the
+            value that is filled with line breaks and indentation to make it
+            easier to read.
+
+            If the space parameter is a non-empty string, then that string will
+            be used for indentation. If the space parameter is a number, then
+            the indentation will be that many spaces.
+
+            Example:
+
+            text = JSON.stringify(['e', {pluribus: 'unum'}]);
+            // text is '["e",{"pluribus":"unum"}]'
+
+
+            text = JSON.stringify(['e', {pluribus: 'unum'}], null, '\t');
+            // text is '[\n\t"e",\n\t{\n\t\t"pluribus": "unum"\n\t}\n]'
+
+            text = JSON.stringify([new Date()], function (key, value) {
+                return this[key] instanceof Date ?
+                    'Date(' + this[key] + ')' : value;
+            });
+            // text is '["Date(---current time---)"]'
+
+
+        JSON.parse(text, reviver)
+            This method parses a JSON text to produce an object or array.
+            It can throw a SyntaxError exception.
+
+            The optional reviver parameter is a function that can filter and
+            transform the results. It receives each of the keys and values,
+            and its return value is used instead of the original value.
+            If it returns what it received, then the structure is not modified.
+            If it returns undefined then the member is deleted.
+
+            Example:
+
+            // Parse the text. Values that look like ISO date strings will
+            // be converted to Date objects.
+
+            myData = JSON.parse(text, function (key, value) {
+                var a;
+                if (typeof value === 'string') {
+                    a =
+/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2}(?:\.\d*)?)Z$/.exec(value);
+                    if (a) {
+                        return new Date(Date.UTC(+a[1], +a[2] - 1, +a[3], +a[4],
+                            +a[5], +a[6]));
+                    }
+                }
+                return value;
+            });
+
+            myData = JSON.parse('["Date(09/09/2001)"]', function (key, value) {
+                var d;
+                if (typeof value === 'string' &&
+                        value.slice(0, 5) === 'Date(' &&
+                        value.slice(-1) === ')') {
+                    d = new Date(value.slice(5, -1));
+                    if (d) {
+                        return d;
+                    }
+                }
+                return value;
+            });
+
+
+    This is a reference implementation. You are free to copy, modify, or
+    redistribute.
+*/
+
+/*jslint evil: true, strict: false, regexp: false */
+
+/*members "", "\b", "\t", "\n", "\f", "\r", "\"", JSON, "\\", apply,
+    call, charCodeAt, getUTCDate, getUTCFullYear, getUTCHours,
+    getUTCMinutes, getUTCMonth, getUTCSeconds, hasOwnProperty, join,
+    lastIndex, length, parse, prototype, push, replace, slice, stringify,
+    test, toJSON, toString, valueOf
+*/
+
+
+// Create a JSON object only if one does not already exist. We create the
+// methods in a closure to avoid creating global variables.
+
+var JSON;
+if (!JSON) {
+    JSON = {};
+}
+
+(function () {
+    "use strict";
+
+    function f(n) {
+        // Format integers to have at least two digits.
+        return n < 10 ? '0' + n : n;
+    }
+
+    if (typeof Date.prototype.toJSON !== 'function') {
+
+        Date.prototype.toJSON = function (key) {
+
+            return isFinite(this.valueOf()) ?
+                this.getUTCFullYear()     + '-' +
+                f(this.getUTCMonth() + 1) + '-' +
+                f(this.getUTCDate())      + 'T' +
+                f(this.getUTCHours())     + ':' +
+                f(this.getUTCMinutes())   + ':' +
+                f(this.getUTCSeconds())   + 'Z' : null;
+        };
+
+        String.prototype.toJSON      =
+            Number.prototype.toJSON  =
+            Boolean.prototype.toJSON = function (key) {
+                return this.valueOf();
+            };
+    }
+
+    var cx = /[\u0000\u00ad\u0600-\u0604\u070f\u17b4\u17b5\u200c-\u200f\u2028-\u202f\u2060-\u206f\ufeff\ufff0-\uffff]/g,
+        escapable = /[\\\"\x00-\x1f\x7f-\x9f\u00ad\u0600-\u0604\u070f\u17b4\u17b5\u200c-\u200f\u2028-\u202f\u2060-\u206f\ufeff\ufff0-\uffff]/g,
+        gap,
+        indent,
+        meta = {    // table of character substitutions
+            '\b': '\\b',
+            '\t': '\\t',
+            '\n': '\\n',
+            '\f': '\\f',
+            '\r': '\\r',
+            '"' : '\\"',
+            '\\': '\\\\'
+        },
+        rep;
+
+
+    function quote(string) {
+
+// If the string contains no control characters, no quote characters, and no
+// backslash characters, then we can safely slap some quotes around it.
+// Otherwise we must also replace the offending characters with safe escape
+// sequences.
+
+        escapable.lastIndex = 0;
+        return escapable.test(string) ? '"' + string.replace(escapable, function (a) {
+            var c = meta[a];
+            return typeof c === 'string' ? c :
+                '\\u' + ('0000' + a.charCodeAt(0).toString(16)).slice(-4);
+        }) + '"' : '"' + string + '"';
+    }
+
+
+    function str(key, holder) {
+
+// Produce a string from holder[key].
+
+        var i,          // The loop counter.
+            k,          // The member key.
+            v,          // The member value.
+            length,
+            mind = gap,
+            partial,
+            value = holder[key];
+
+// If the value has a toJSON method, call it to obtain a replacement value.
+
+        if (value && typeof value === 'object' &&
+                typeof value.toJSON === 'function') {
+            value = value.toJSON(key);
+        }
+
+// If we were called with a replacer function, then call the replacer to
+// obtain a replacement value.
+
+        if (typeof rep === 'function') {
+            value = rep.call(holder, key, value);
+        }
+
+// What happens next depends on the value's type.
+
+        switch (typeof value) {
+        case 'string':
+            return quote(value);
+
+        case 'number':
+
+// JSON numbers must be finite. Encode non-finite numbers as null.
+
+            return isFinite(value) ? String(value) : 'null';
+
+        case 'boolean':
+        case 'null':
+
+// If the value is a boolean or null, convert it to a string. Note:
+// typeof null does not produce 'null'. The case is included here in
+// the remote chance that this gets fixed someday.
+
+            return String(value);
+
+// If the type is 'object', we might be dealing with an object or an array or
+// null.
+
+        case 'object':
+
+// Due to a specification blunder in ECMAScript, typeof null is 'object',
+// so watch out for that case.
+
+            if (!value) {
+                return 'null';
+            }
+
+// Make an array to hold the partial results of stringifying this object value.
+
+            gap += indent;
+            partial = [];
+
+// Is the value an array?
+
+            if (Object.prototype.toString.apply(value) === '[object Array]') {
+
+// The value is an array. Stringify every element. Use null as a placeholder
+// for non-JSON values.
+
+                length = value.length;
+                for (i = 0; i < length; i += 1) {
+                    partial[i] = str(i, value) || 'null';
+                }
+
+// Join all of the elements together, separated with commas, and wrap them in
+// brackets.
+
+                v = partial.length === 0 ? '[]' : gap ?
+                    '[\n' + gap + partial.join(',\n' + gap) + '\n' + mind + ']' :
+                    '[' + partial.join(',') + ']';
+                gap = mind;
+                return v;
+            }
+
+// If the replacer is an array, use it to select the members to be stringified.
+
+            if (rep && typeof rep === 'object') {
+                length = rep.length;
+                for (i = 0; i < length; i += 1) {
+                    k = rep[i];
+                    if (typeof k === 'string') {
+                        v = str(k, value);
+                        if (v) {
+                            partial.push(quote(k) + (gap ? ': ' : ':') + v);
+                        }
+                    }
+                }
+            } else {
+
+// Otherwise, iterate through all of the keys in the object.
+
+                for (k in value) {
+                    if (Object.hasOwnProperty.call(value, k)) {
+                        v = str(k, value);
+                        if (v) {
+                            partial.push(quote(k) + (gap ? ': ' : ':') + v);
+                        }
+                    }
+                }
+            }
+
+// Join all of the member texts together, separated with commas,
+// and wrap them in braces.
+
+            v = partial.length === 0 ? '{}' : gap ?
+                '{\n' + gap + partial.join(',\n' + gap) + '\n' + mind + '}' :
+                '{' + partial.join(',') + '}';
+            gap = mind;
+            return v;
+        }
+    }
+
+// If the JSON object does not yet have a stringify method, give it one.
+
+    if (typeof JSON.stringify !== 'function') {
+        JSON.stringify = function (value, replacer, space) {
+
+// The stringify method takes a value and an optional replacer, and an optional
+// space parameter, and returns a JSON text. The replacer can be a function
+// that can replace values, or an array of strings that will select the keys.
+// A default replacer method can be provided. Use of the space parameter can
+// produce text that is more easily readable.
+
+            var i;
+            gap = '';
+            indent = '';
+
+// If the space parameter is a number, make an indent string containing that
+// many spaces.
+
+            if (typeof space === 'number') {
+                for (i = 0; i < space; i += 1) {
+                    indent += ' ';
+                }
+
+// If the space parameter is a string, it will be used as the indent string.
+
+            } else if (typeof space === 'string') {
+                indent = space;
+            }
+
+// If there is a replacer, it must be a function or an array.
+// Otherwise, throw an error.
+
+            rep = replacer;
+            if (replacer && typeof replacer !== 'function' &&
+                    (typeof replacer !== 'object' ||
+                    typeof replacer.length !== 'number')) {
+                throw new Error('JSON.stringify');
+            }
+
+// Make a fake root object containing our value under the key of ''.
+// Return the result of stringifying the value.
+
+            return str('', {'': value});
+        };
+    }
+
+
+// If the JSON object does not yet have a parse method, give it one.
+
+    if (typeof JSON.parse !== 'function') {
+        JSON.parse = function (text, reviver) {
+
+// The parse method takes a text and an optional reviver function, and returns
+// a JavaScript value if the text is a valid JSON text.
+
+            var j;
+
+            function walk(holder, key) {
+
+// The walk method is used to recursively walk the resulting structure so
+// that modifications can be made.
+
+                var k, v, value = holder[key];
+                if (value && typeof value === 'object') {
+                    for (k in value) {
+                        if (Object.hasOwnProperty.call(value, k)) {
+                            v = walk(value, k);
+                            if (v !== undefined) {
+                                value[k] = v;
+                            } else {
+                                delete value[k];
+                            }
+                        }
+                    }
+                }
+                return reviver.call(holder, key, value);
+            }
+
+
+// Parsing happens in four stages. In the first stage, we replace certain
+// Unicode characters with escape sequences. JavaScript handles many characters
+// incorrectly, either silently deleting them, or treating them as line endings.
+
+            text = String(text);
+            cx.lastIndex = 0;
+            if (cx.test(text)) {
+                text = text.replace(cx, function (a) {
+                    return '\\u' +
+                        ('0000' + a.charCodeAt(0).toString(16)).slice(-4);
+                });
+            }
+
+// In the second stage, we run the text against regular expressions that look
+// for non-JSON patterns. We are especially concerned with '()' and 'new'
+// because they can cause invocation, and '=' because it can cause mutation.
+// But just to be safe, we want to reject all unexpected forms.
+
+// We split the second stage into 4 regexp operations in order to work around
+// crippling inefficiencies in IE's and Safari's regexp engines. First we
+// replace the JSON backslash pairs with '@' (a non-JSON character). Second, we
+// replace all simple value tokens with ']' characters. Third, we delete all
+// open brackets that follow a colon or comma or that begin the text. Finally,
+// we look to see that the remaining characters are only whitespace or ']' or
+// ',' or ':' or '{' or '}'. If that is so, then the text is safe for eval.
+
+            if (/^[\],:{}\s]*$/
+                    .test(text.replace(/\\(?:["\\\/bfnrt]|u[0-9a-fA-F]{4})/g, '@')
+                        .replace(/"[^"\\\n\r]*"|true|false|null|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?/g, ']')
+                        .replace(/(?:^|:|,)(?:\s*\[)+/g, ''))) {
+
+// In the third stage we use the eval function to compile the text into a
+// JavaScript structure. The '{' operator is subject to a syntactic ambiguity
+// in JavaScript: it can begin a block or an object literal. We wrap the text
+// in parens to eliminate the ambiguity.
+
+                j = eval('(' + text + ')');
+
+// In the optional fourth stage, we recursively walk the new structure, passing
+// each name/value pair to a reviver function for possible transformation.
+
+                return typeof reviver === 'function' ?
+                    walk({'': j}, '') : j;
+            }
+
+// If the text is not JSON parseable, then a SyntaxError is thrown.
+
+            throw new SyntaxError('JSON.parse');
+        };
+    }
+}());

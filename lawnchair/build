@@ -1,0 +1,40 @@
+#!/bin/bash
+# Help
+help() {
+    echo "------ usage --------------------------------------------------";
+    echo "| build [adapter1 [adapter 2 [...]]]                          |";
+    echo "------ description --------------------------------------------";
+    echo "| Builds lawnchair with the specified adapters. Does a        |";
+    echo "| wildcard suffix search based on the adapter arguments you   |";
+    echo "| provide. Builds to lc-prod.js in current directory.         |";
+    echo "|----- list of adapters --------------------------------------|";
+    echo "| AIRSqlite                                                   |";
+    echo "| AIRSqliteAsync                                              |";
+    echo "| BlackBerry                                                  |";
+    echo "| Cookie                                                      |";
+    echo "| Couch                                                       |";
+    echo "| DOMStorage                                                  |";
+    echo "| GearsSQLite                                                 |";
+    echo "| Server                                                      |";
+    echo "| UserData                                                    |";
+    echo "| WebKitSqlite                                                |";
+    echo "---------------------------------------------------------------";
+}
+if [ $# -lt 1 ]
+then
+    help;
+    echo "ERROR: You need to provide at least one adapter as argument.";
+else
+    echo "Including base Lawnchair JS...";
+    adapterSrc="src/Lawnchair.js src/adaptors/LawnchairAdaptorHelpers.js";
+    for arg in "$@"
+    do
+        for file in $(find src/adaptors -iname $arg*)
+        do
+            echo "Adding adapter '$file' to lc_prod.js...";
+            adapterSrc="$adapterSrc $file";
+        done
+    done
+    cat $adapterSrc > lc_prod.js;
+    echo "... done.";
+fi 

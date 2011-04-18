@@ -1,0 +1,124 @@
+<!DOCTYPE html> 
+<html> 
+  <head> 
+    <meta charset="utf-8" /> 
+    <title>Skip's Picks Mobile</title> 
+  </head> 
+  <body>
+
+    <div data-role="page" id="user" data-theme="e">
+      <div data-role="header">
+        <h1>User</h1>
+        <a href="/" rel="external" data-icon="home" data-iconpos="notext" data-direction="reverse" class="ui-btn-right jqm-home">Home</a>
+      </div>
+
+      <div data-role="content" class="ui-content" role="main">
+
+        <div id="login" class="ui-grid-a" style="display:none;"> 
+          <div class="ui-block-a">
+            <h3>Log in</h3>
+            <form id="user-login-form" onsubmit="return false;">
+              <fieldset>
+                <input type="text" name="user_name" placeholder="user name" />
+                <input type="password" name="password" placeholder="password" />
+                <input type="text" name="email" style="visibility:hidden;" />
+                <input type="submit" value="submit" />
+              </fieldset>
+            </form>
+          </div> 
+          <div class="ui-block-b">
+            <h3>Create user</h3>
+            <form id="user-create-form" onsubmit="return false;">
+              <fieldset>
+                <input type="text" name="user_name" placeholder="user name" />
+                <input type="password" name="password" placeholder="password" />
+                <input type="email" name="email" placeholder="email" />
+                <input type="submit" value="submit" />
+              </fieldset>
+            </form>
+          </div> 
+        </div>
+
+        <div id="userinfo" style="display:none;">
+          <p data-role="title"></p>
+          <button data-inline="true" id="logoutbutton" type="submit" data-icon="delete" data-iconpos="right">Log out</button>
+          <p>Below are your latest reviews</p>
+
+          <div>
+            <ul data-role="listview" data-role="listbox" data-filter="true" id="userLocs">
+            </ul>
+          </div>
+        </div>
+
+        <script>
+          $('#user-login-form').submit(function(e) {
+            e.preventDefault();
+            SP.getUser(this.user_name.value, this.password.value, true, function(user) {
+              $('div#login').css('display', 'none');
+              $('div#userinfo > p[data-role="title"]').html('You are logged in as ' + user.user_name);
+              $('div#userinfo').css('display', 'block');
+
+              $('ul#userLocs').html(tmpl("list_tmpl", user.locations));
+              $('ul#userLocs').listview('refresh');
+              $('div#user').page();
+            });
+            return false;
+          });
+
+          $('#user-create-form').submit(function(e) {
+            console.log('create form submit');
+            e.preventDefault();
+            SP.createUser(this, function(user) {
+              console.log('back to callback');
+              console.log(user);
+              $('div#login').css('display', 'none');
+              $('div#userinfo > p[data-role="title"]').html('You are logged in as ' + user.user_name);
+              $('div#userinfo').css('display', 'block');
+
+              $('ul#userLocs').html(tmpl("list_tmpl", user.locations));
+              $('ul#userLocs').listview('refresh');
+              $('div#user').page();
+            });
+            return false;
+          });
+
+          $('#logoutbutton').click(function(e) {
+            e.preventDefault();
+            SP.logOut(function() {
+              $('div#login').css('display', 'block');
+              $('div#userinfo').css('display', 'none');
+              $('div#user').page();
+            });
+            return false;
+          });
+
+          $('#user').live('pageshow', function() {
+            console.log('SHOWING user page');
+            var userName = SP.readCookie('user-name');
+            var password = SP.readCookie('user-password');
+
+            if (userName) {
+              SP.getUser(userName, password, false, function(user) {
+                $('div#login').css('display', 'none');
+                $('div#userinfo > p[data-role="title"]').html('You are logged in as ' + userName);
+                $('div#userinfo').css('display', 'block');
+
+                $('ul#userLocs').html(tmpl("list_tmpl", user.locations));
+                $('ul#userLocs').listview('refresh');
+              });
+            } else {
+              $('div#userinfo').css('display', 'none');
+              $('div#login').css('display', 'block');
+            }
+
+            $('div#user').page();
+          });
+        </script>
+
+      </div>
+      <div data-role="footer">
+      </div>
+    </div>
+
+  </body> 
+</html> 

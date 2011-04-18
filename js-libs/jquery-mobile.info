@@ -1,0 +1,79 @@
+helpful pages
+
+- top
+    - events
+        pagebeforeshow, pagebeforecreate!
+    - methods
+        changePage!, pageLoading (alert)!, activePage
+    - themes
+        examples and buttons with sublinks that might be handy
+    - pages
+        - anatomy
+            linking, structure, etc..
+        - transitions
+        - dialogs
+        - ajax/hash/history
+            base element?, subhash urls?, known limitaitons!, 
+        - link formats
+        - page theming
+            has examples
+    - toolbars
+        -basics
+            types, positioning/fixed!, fullscreen mode (see sub pages)
+        - header bars
+            adding buttons!, potential config button, change button text, custom header using nested divs
+        - footer bars
+            adding buttons!, ui-bar adds padding!, !persistent footers!
+        - navbar
+            goes into icons, too, and mentions an icon library glyphish
+        - fixed
+            a bit more info on fixed with working example
+        - fullscreen
+            more on fullscreen
+        - persistent footer nav
+            looks interesting
+        - theming
+            details on toolbar themes
+    - buttons
+        - markup options
+            treating anchors as buttons, form buttons
+        - icons 
+            good set
+        - inline
+            smaller buttons
+        - grouping
+            duh
+        - theming
+    - content formatting
+        - basic html
+            not a lot here
+        - layout grids
+            mostly for buttons, multiple, columns
+        - collapsible content
+            useful
+    - form elements
+        - basics
+            important stuff
+        - elements
+            widgets shown
+        - text inputs
+            intersting html5 stuff!
+        - search inputs
+        - slider
+            html5 range!
+        - toggle
+        - radio
+        - checkboxes
+        - select
+            interesting, popups, small dialogs...
+        - theming
+        - submission
+            little here
+        - plugin methods
+            disable/enable, some interesting select box shit
+    _lists!
+        - markup conventions
+            lots of basic stuff
+        - too many.... see page, search filter, insets, theming!
+        
+

@@ -1,0 +1,12 @@
+Options +FollowSymLinks
+
+# Rewrite On
+# remember, no leading slash!
+# and order matters
+#
+RewriteEngine on
+
+# mobile and newer, simpler RESTful API
+RewriteRule ^rest(\/([^\/]*))?/locations/?([0-9]*) /php/rest.php?version=$2&api=loc&id=$3&%{QUERY_STRING} [L]
+RewriteRule ^rest(\/([^\/]*))?/users/?([a-zA-Z0-9]*) /php/rest.php?version=$2&api=user&name=$3&%{QUERY_STRING} [L]
+

@@ -1,0 +1,63 @@
+
+TODO (sorted by priority): 
+
+- add yahoo results interleaved ??? and search by qt there!
+- fix extraneous loading of jsapi/gmaps
+- display loc type on detail?
+- do smartphone book enhancements
+- move js from user.php to js-lib
+- find a way to trigger on multiple events to allow setting of geopos once in better way
+- refactor/optimization
+  - make sure no redundant calls!  such as yahoo calls?
+- initial rating into ldm; rest into review?  or else, sort by review rating average!!
+- change out templating language to be jquery native??!!
+- remove js and php logging
+- suppress twitter via checkbox on form
+  - or via user config setting
+
+
+Mobile: change hash explicitly, add star to detail header, update favorites page, modify headers with h1 page name and h6 site name
+Add loading for detail
+Filter page refresh
+User login
+No add page sans add a review...or: how to get lat/lng? 
+New issues:
+Add page had bad memory
+Remove add link if not signed in
+Dig into jqm code and hack
+Map size never greater then max
+Filter page be dialog
+Learn or get alerts
+Remove some edit options on existing add
+Reduce detail list
+Filter on"wish"not work
+If location is in local db don't query! 
+webos browser location
+Escape search query
+withGps function/closure
+Dev pointer url via panel
+0 as distance, check for 0, yahoo? 
+
+
+
+1/21/2011
+- do not use an iPhone emulation software package, ie IUI, jqtouch? etc...
+
+- features available:
+    - search (by [current location|other place])
+    - find nearby
+    - add location (linked to from all over...) (on yelp, it is only a draft to be taken up later online...)
+    - saved list/to do
+
+- tech/design
+    - finish smartphone book
+    - html5
+    - plain, clean
+    - .gz files
+
+
+- potential frameworks/libs
+    - jo
+    - jquery mobile
+    - xui
+

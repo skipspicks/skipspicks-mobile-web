@@ -1,0 +1,34 @@
+<!DOCTYPE html> 
+<html> 
+  <head> 
+    <meta http-equiv="content-type" content="text/html; charset=UTF-8"/> 
+    <title>Skip's Picks - Location Dialog</title> 
+  </head> 
+  <body>
+
+    <div data-role="page" id="loc-dialog" data-theme="d">
+
+      <div data-role="header" data-theme="b">
+        <h1>Enter your location</h1>
+      </div>
+
+      <div data-role="content" class="ui-content" role="main">
+        <p>Most functionality on this site requires your location.  It appears that you have turned off location services.  In that case, enter a location to use while searching.</p>
+        <form id="loc-form">
+          <fieldset>
+            <input type="text" name="address" placeholder="Address" />
+            <input type="text" name="city" placeholder="City" />, <input type="text" name="state" placeholder="State" /><br />
+            <b>OR</b>
+            <br />
+            <input type="text" name="postal_code" placeholder="Zip code"  />
+          </fieldset>
+          <button type="submit" data-icon="check" data-iconpos="right">Set Location</button>
+        </form>
+      </div>
+
+      <div data-role="footer" data-theme="b">
+      </div>
+    </div>
+
+  </body> 
+</html> 
