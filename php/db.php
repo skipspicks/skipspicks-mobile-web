@@ -228,17 +228,60 @@
           $locs[$i]['reviews'] = $reviews;
         }
 
-/*
         $yahoo = unserialize(get_yahoo_nearby($lat, $lng));
         foreach ($yahoo['ResultSet']['Result'] as $y) {
-            echo $y['id'] . ': ' . $y['Title'] . '</br>';
+          $yahoo_loc = array(
+            yahoo_id => $y['id'],
+            location_id => $y['id'],
+            name => $y['Title'],
+            address => $y['Address'],
+            city => $y['City'],
+            state => $y['State'],
+            phone => $y['Phone'],
+            lat => $y['Latitude'],
+            lng => $y['Longitude'],
+            url => $y['BusinessClickUrl'],
+            avg_rev_rating => $y['Rating']['AverageRating'],
+            distance => $y['Distance'],
+            reviews => array(array(body => $y['Rating']['LastReviewIntro'])),
+            type => 'yahoo'
+          );
+
+          $cname = preg_replace('/(the|kitchen|restaurant)/i', '', $yahoo_loc['name']);
+          $cstreet = preg_replace('/\D/i', '', $yahoo_loc['address']);
+          if (!is_dupe($locs, $cname, $cstreet))
+            array_push($locs, $yahoo_loc);
         }
-        print_r($yahoo);
-*/
+        // print_r($yahoo);
+
+        usort($locs, 'cmp');
+        // print_r($locs);
 
         return $locs;
     }
 
+    function is_dupe(&$array, $cname, $cstreet) {
+        foreach ($array as $key => $value) {
+          $name = preg_replace('/(the|kitchen|restaurant)/i', '', $value['name']);
+          $street = preg_replace('/\D/i', '', $value['address']);
+          if (preg_match('/'.$street.'/', $cstreet)) {
+            if (preg_match('/'.$name.'/', $cname)) {
+                logdump('found dupe: ' . $value['name'], false);
+                return true;
+            } 
+          }
+        }
+        return false;
+    }
+
+    function cmp($a, $b) {
+        $ad = $a['distance'];
+        $bd = $b['distance'];
+        if ($ad == $bd) {
+            return 0;
+        }
+        return ($ad < $bd) ? -1 : 1;
+    }
 
     /**
      * takes a flattened location (eg. from a post)
