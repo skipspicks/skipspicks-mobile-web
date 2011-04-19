@@ -228,6 +228,14 @@
           $locs[$i]['reviews'] = $reviews;
         }
 
+/*
+        $yahoo = unserialize(get_yahoo_nearby($lat, $lng));
+        foreach ($yahoo['ResultSet']['Result'] as $y) {
+            echo $y['id'] . ': ' . $y['Title'] . '</br>';
+        }
+        print_r($yahoo);
+*/
+
         return $locs;
     }
 

@@ -66,4 +66,29 @@
         logdump($rc);
     }
 
+    function get_yahoo_nearby($lat = 45.5217631, $lng = -122.6781892, $radius = 3.5) {
+        $http_info = array();
+        $ci = curl_init();
+        $url = 'http://local.yahooapis.com/LocalSearchService/V3/localSearch?appid=hK.bnA7V34EQYsQLfVbdFoAgAkItOiaQ.pSUBVClWeLuB..rD8P.85pliVIZeg--&results=15&radius=' . $radius . '&sort=distance&output=php&latitude=' . $lat . '&longitude=' . $lng . '&query=restaurant';
+
+        /* Curl settings */
+        curl_setopt($ci, CURLOPT_USERAGENT, 'User-Agent:Mozilla/5.0 (Macintosh; U; Intel Mac OS X 10_6_7; en-US) AppleWebKit/534.
+        16 (KHTML, like Gecko) Chrome/10.0.648.205 Safari/534.16');    curl_setopt($ci, CURLOPT_CONNECTTIMEOUT, 30);
+        curl_setopt($ci, CURLOPT_TIMEOUT, 30);
+        curl_setopt($ci, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ci, CURLOPT_HTTPHEADER, array('Expect:'));
+        curl_setopt($ci, CURLOPT_SSL_VERIFYPEER, false);
+        // curl_setopt($ci, CURLOPT_HEADERFUNCTION, array($this, 'getHeader'));
+        curl_setopt($ci, CURLOPT_HEADER, false);
+        curl_setopt($ci, CURLOPT_URL, $url);
+
+        $response = curl_exec($ci);
+        $http_code = curl_getinfo($ci, CURLINFO_HTTP_CODE);
+        $http_info = array_merge($http_info, curl_getinfo($ci));
+        $url = $url;
+        curl_close ($ci);
+        return $response;
+    }
+
+
 ?>
