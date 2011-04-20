@@ -228,34 +228,38 @@
           $locs[$i]['reviews'] = $reviews;
         }
 
-        $yahoo = unserialize(get_yahoo_nearby($lat, $lng));
-        foreach ($yahoo['ResultSet']['Result'] as $y) {
-          $yahoo_loc = array(
-            yahoo_id => $y['id'],
-            location_id => $y['id'],
-            name => $y['Title'],
-            address => $y['Address'],
-            city => $y['City'],
-            state => $y['State'],
-            phone => $y['Phone'],
-            lat => $y['Latitude'],
-            lng => $y['Longitude'],
-            url => $y['BusinessClickUrl'],
-            avg_rev_rating => $y['Rating']['AverageRating'],
-            distance => $y['Distance'],
-            reviews => array(array(body => $y['Rating']['LastReviewIntro'])),
-            type => 'yahoo'
-          );
+        if (!empty($lat) && !empty($lng)) {
+          $yahoo = unserialize(get_yahoo_nearby($lat, $lng));
+          if ($yahoo['ResultSet']['totalResultsReturned'] > 0) {
+            foreach ($yahoo['ResultSet']['Result'] as $y) {
+              $yahoo_loc = array(
+                yahoo_id => $y['id'],
+                location_id => $y['id'],
+                name => $y['Title'],
+                address => $y['Address'],
+                city => $y['City'],
+                state => $y['State'],
+                phone => $y['Phone'],
+                lat => $y['Latitude'],
+                lng => $y['Longitude'],
+                url => $y['BusinessClickUrl'],
+                avg_rev_rating => $y['Rating']['AverageRating'],
+                distance => $y['Distance'],
+                reviews => array(array(body => $y['Rating']['LastReviewIntro'])),
+                type => 'yahoo'
+              );
 
-          $cname = preg_replace('/(the|kitchen|restaurant)/i', '', $yahoo_loc['name']);
-          $cstreet = preg_replace('/\D/i', '', $yahoo_loc['address']);
-          if (!is_dupe($locs, $cname, $cstreet))
-            array_push($locs, $yahoo_loc);
+              $cname = preg_replace('/(the|kitchen|restaurant)/i', '', $yahoo_loc['name']);
+              $cstreet = preg_replace('/\D/i', '', $yahoo_loc['address']);
+              if (!is_dupe($locs, $cname, $cstreet))
+                array_push($locs, $yahoo_loc);
+            }
+          }
+          // print_r($yahoo);
+
+          usort($locs, 'cmp');
+          // print_r($locs);
         }
-        // print_r($yahoo);
-
-        usort($locs, 'cmp');
-        // print_r($locs);
 
         return $locs;
     }
