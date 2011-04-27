@@ -167,7 +167,7 @@
         }
 
         $query .= $where;
-        $query .= " group by l.location_id ";
+        $query .= " group by l.location_id, lrm.location_id "; // BEER: trying to force avg_review_rating, may not work
 
         $query .= "
             having distance < $distance
