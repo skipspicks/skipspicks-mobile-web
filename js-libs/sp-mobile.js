@@ -8,6 +8,13 @@
  * startup
  */
 (function () {
+
+  // document.domain = "skipspicks.net";
+  var subs = location.hostname.split(".");
+  while (subs.length > 2)
+      subs.shift()
+  document.domain = subs.join(".");
+
   // global
   $('div').live('pagebeforeshow', function() {
     $('div[data-role="footer"]').html($('div#static-footer').html());
@@ -190,52 +197,44 @@ if (!this.SP) {
           var url = frm.attr('action'); // already has id if exists
           console.log(url);
 
-          if ($('input:[name="lat"]', frm).val() == "") {
-            SP.log('retrieving lat lng', 2);
-            var loc = {};
-            loc.address = $('input:[name="address"]', frm).val();
-            loc.city = $('input:[name="city"]', frm).val();
-            loc.state = $('input:[name="state"]', frm).val();
-            // dynamically load google api
-            SP.loadGMapApi.callback = function() {
-              SP.reverseGeoCode(loc, function(point) {
-                if (point) {
-                  var geo = point.geometry.location;
-                  SP.log(geo, 2);
-                  $('input:[name="lat"]', frm).val(geo.lat());
-                  $('input:[name="lng"]', frm).val(geo.lng());
-                  $.mobile.changePage({
-                    url: url,
-                    type: "POST", 
-                    data: frm.serialize()
-                  }, 'pop', false, false); 
-                } else {
-                  // if no results, get from navigator
-                  SP.log('reverting to device location', 2);
-                  SP.withGeoLocation(function(geoposition) {
-                    if (geoposition) {
-                      var geo = geoposition.coords;
-                      $('input:[name="lat"]', frm).val(geo.latitude);
-                      $('input:[name="lng"]', frm).val(geo.longitude);
-                      $.mobile.changePage({
-                        url: url,
-                        type: "POST", 
-                        data: frm.serialize()
-                      }, 'pop', false, false); 
-                    }
-                  });
-                }
-              });
-            };
-            SP.loadGMapApi.loadjsapi();
-          } else {
-            SP.log('adding location, no geo lookup', 2);
-            $.mobile.changePage({
-              url: url,
-              type: "POST", 
-              data: frm.serialize()
-            }, 'pop', false, false); 
-          }
+          SP.log('retrieving lat lng', 2);
+          var loc = {};
+          loc.address = $('input:[name="address"]', frm).val();
+          loc.city = $('input:[name="city"]', frm).val();
+          loc.state = $('input:[name="state"]', frm).val();
+          loc.zip = $('input:[name="postal_code"]', frm).val();
+          // dynamically load google api
+          SP.loadGMapApi.callback = function() {
+            SP.reverseGeoCode(loc, function(point) {
+              if (point) {
+                var geo = point.geometry.location;
+                SP.log(geo, 2);
+                $('input:[name="lat"]', frm).val(geo.lat());
+                $('input:[name="lng"]', frm).val(geo.lng());
+                $.mobile.changePage({
+                  url: url,
+                  type: "POST", 
+                  data: frm.serialize()
+                }, 'pop', false, false); 
+              } else {
+                // if no results, get from navigator
+                SP.log('reverting to device location', 2);
+                SP.withGeoLocation(function(geoposition) {
+                  if (geoposition) {
+                    var geo = geoposition.coords;
+                    $('input:[name="lat"]', frm).val(geo.latitude);
+                    $('input:[name="lng"]', frm).val(geo.longitude);
+                    $.mobile.changePage({
+                      url: url,
+                      type: "POST", 
+                      data: frm.serialize()
+                    }, 'pop', false, false); 
+                  }
+                });
+              }
+            });
+          };
+          SP.loadGMapApi.loadjsapi();
         },
 
         /**
@@ -457,7 +456,10 @@ if (!this.SP) {
          */
         reverseGeoCode: function(loc, callback) {
           var geocoder = new google.maps.Geocoder();
-          var address = loc.address + ',' + loc.city + ',' + loc.state + ',' + loc.zip;
+          // var address = loc.address + ',' + loc.city + ',' + loc.state + ',' + loc.zip;
+          var address = loc.address + ',' + loc.city + ',' + loc.state;
+          if (loc.zip)
+            address += ',' + loc.zip;
           address = address.replace(/\s/g, "+");
           console.log(address);
           geocoder.geocode( { 'address': address }, function(results, status) {

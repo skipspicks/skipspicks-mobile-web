@@ -14,9 +14,10 @@
 	<link rel="icon" href="/favicon.ico" />
 
     <title>Skip's Picks Mobile</title> 
-    <link rel="stylesheet" href="http://code.jquery.com/mobile/1.0a3/jquery.mobile-1.0a3.min.css" />
-    <script src="http://code.jquery.com/jquery-1.5.min.js"></script>
-    <script src="http://code.jquery.com/mobile/1.0a3/jquery.mobile-1.0a3.min.js"></script>
+
+    <link rel="stylesheet" href="http://code.jquery.com/mobile/1.0b1/jquery.mobile-1.0b1.min.css" />
+    <script src="http://code.jquery.com/jquery-1.6.1.min.js"></script>
+    <script src="http://code.jquery.com/mobile/1.0b1/jquery.mobile-1.0b1.min.js"></script>
 
 <!--
     <link rel="stylesheet" href="js-libs/jqm1.0a3/jquery.mobile-1.0a3.min.css" />
@@ -31,9 +32,9 @@
     <script src="js-libs/sp-mobile.js"></script> 
  -->
 
+    <script src="js-libs/sp-mobile.js.combined.min.js"></script> 
 <!--
  -->
-    <script src="js-libs/sp-mobile.js.combined.min.js"></script> 
 
   </head> 
   <body>

@@ -395,7 +395,7 @@
         // if no errors, post to twitter
         $status = 'A review of ' .  html_entity_decode($loc['name']) . ' was just posted by ' .  $loc['user'];
         $status .= " on Skip's Picks Mobile: ";
-        $status .= ' http://m.skipspicks.net/#detail.php?id=' . $id;
+        $status .= ' http://m.skipspicks.net/#/detail.php?id=' . $id;
         post_tweet($status);
     }
 

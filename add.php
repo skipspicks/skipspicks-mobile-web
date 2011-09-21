@@ -166,6 +166,16 @@ $max_horizontal = 5;
             SP.preProcessAddForm($(this));
             return false;
           });
+          SP.withGeoLocation(function(geoposition) {
+            if (!geoposition)
+              return;
+            var g = geoposition.address;
+            $('#addAddress').val(g.streetNumber + ' ' + g.street);
+            $('#addCity').val(g.city);
+            $('#addState').val(g.region);
+            $('#addPostal_code').val(g.postalCode);
+            SP.log(g, 2);
+          });
         </script>
 
         <?php if (!empty($id)) { ?>

@@ -1,0 +1,52 @@
+
+notes from progrmatic rest
+
+- don't use verbs/actions for objects
+
+- have 2 or so urls
+- use plurals
+
+CRUD <=> post, get, put, delete
+
+- request for info:
+/dogs/20?fields=name,age,color
+
+- how to request return type:
+/dogs.json
+/dogs/bo.json
+(use an extension)
+
+-versioning!  important
+/v1/dogs/bo
+
+- searching
+here can use verb:
+/dogs/search?args
+
+- errors
+lots, cause remember, no one reads docs
+response: http status code: 401
+{"status":401, "message":"authenticate", "code":2003, "more-info":"url..."}
+
+- domain:
+api.codechops.com - rest/api
+dev.codechops.com - developer portal
+
+redirect: developer(s) -> dev
+if not a real api call, redirect api.codechops.com/ -> dev.cod...com/
+
+- defaults 
+format: json
+pagination: limit=10&offset=0  # ps. use this style, matches db
+
+/dogs?method=post  create
+/dogs       read
+/dogs/bo?method=put&location=park   update
+/dogs/bo?method=delete    delete
+
+- sweep complexity behind the ?
+
+- add virtualization layer?
+
+- see google advanced search URL's for good examples
+
